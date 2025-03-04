@@ -15,7 +15,7 @@ model = YOLO('yolov8n.pt')  # Path to your YOLO model (make sure it's properly t
 score1 = 501
 score2 = 501
 current_player = 1
-game_over = False
+game_mode = 2  # Default to 2-player mode
 lock = threading.Lock()
 
 # Initialize the camera (Adjust camera index as needed)
@@ -126,10 +126,11 @@ def video_feed():
 
 @app.route('/next_turn')
 def next_turn():
-    """ Switch turns between players """
+    """ Switch turns between players if 2-player mode is selected """
     global current_player
-    with lock:
-        current_player = 2 if current_player == 1 else 1
+    if game_mode == 2:
+        with lock:
+            current_player = 2 if current_player == 1 else 1
     return jsonify({"current_player": current_player})
 
 
@@ -148,6 +149,20 @@ def reset_game():
         score2 = 501
         current_player = 1
     return jsonify({"player1_score": score1, "player2_score": score2})
+
+
+@app.route('/set_player_mode/<int:mode>')
+def set_player_mode(mode):
+    """ Set the player mode (1-player or 2-player) """
+    global game_mode
+    with lock:
+        game_mode = mode
+        # Reset scores when switching game modes
+        global score1, score2, current_player
+        score1 = 501
+        score2 = 501
+        current_player = 1
+    return jsonify({"game_mode": game_mode, "player1_score": score1, "player2_score": score2})
 
 
 if __name__ == '__main__':
