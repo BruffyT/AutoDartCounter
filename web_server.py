@@ -1,151 +1,154 @@
-from flask import Flask, jsonify, request
 import cv2
-from picamera2 import Picamera2
-from ultralytics import YOLO
-import os
 import numpy as np
+import time
+from flask import Flask, render_template, Response, jsonify
+from ultralytics import YOLO
+import threading
 
+# Initialize Flask app
 app = Flask(__name__)
 
-# Load YOLO dart detection model
-model = YOLO("dart_model.pt")
+# YOLO model for dart detection (Make sure to train your own YOLO model for dart detection)
+model = YOLO('yolov8n.pt')  # Path to your YOLO model (make sure it's properly trained)
 
-# Initialize three OV9732 cameras (index 0, 1, 2)
-picam1 = Picamera2(0)  # First camera
-picam2 = Picamera2(1)  # Second camera
-picam3 = Picamera2(2)  # Third camera
+# Initialize variables
+score1 = 501
+score2 = 501
+current_player = 1
+game_over = False
+lock = threading.Lock()
 
-# Set resolution to 1280x720 and limit FPS to 30
-picam1.preview_configuration.main.size = (1280, 720)
-picam1.preview_configuration.main.format = "RGB888"
-picam1.preview_configuration.controls.FrameRate = 30
-picam1.configure("preview")
-picam1.start()
+# Initialize the camera (Adjust camera index as needed)
+cap = cv2.VideoCapture(0)  # 0 for the first camera, change if using another one
 
-picam2.preview_configuration.main.size = (1280, 720)
-picam2.preview_configuration.main.format = "RGB888"
-picam2.preview_configuration.controls.FrameRate = 30
-picam2.configure("preview")
-picam2.start()
+# Dartboard parameters (you can tune this based on your setup)
+dartboard_center = (320, 240)  # Assuming a 640x480 resolution for simplicity
+dartboard_radius = 200
 
-picam3.preview_configuration.main.size = (1280, 720)
-picam3.preview_configuration.main.format = "RGB888"
-picam3.preview_configuration.controls.FrameRate = 30
-picam3.configure("preview")
-picam3.start()
 
-# Default game settings
-starting_score = 501
-players = [{"name": "Player 1", "score": starting_score}, {"name": "Player 2", "score": starting_score}]
-current_player = 0  # Index of active player
+def detect_darts(frame):
+    """ Detect darts using YOLO model and return their coordinates """
+    results = model(frame)
+    detections = results.pandas().xywh[results.pandas().confidence > 0.5]
 
-# Dart position to score (Example, replace with real mapping)
-def get_score(x, y):
-    return 50 if x < 100 and y < 100 else 20  # Example scoring logic
+    darts = []
+    for index, row in detections.iterrows():
+        if row['class'] == 0:  # Assuming 'dart' is class 0 in your YOLO model
+            dart_x, dart_y = int(row['xmin'] + (row['xmax'] - row['xmin']) / 2), int(
+                row['ymin'] + (row['ymax'] - row['ymin']) / 2)
+            darts.append((dart_x, dart_y))
 
-# Checkout combinations
-checkout_options = {
-    170: "T20, T20, Bull",
-    167: "T20, T19, Bull",
-    164: "T20, T18, Bull",
-    161: "T20, T17, Bull",
-    160: "T20, T20, D20",
-    100: "T20, D20",
-    40: "D20",
-    32: "D16",
-    24: "D12",
-    2: "D1",
-}
+    return darts
 
-# Get best checkout options
-def get_checkout_options(score):
-    options = []
-    for target in sorted(checkout_options.keys(), reverse=True):
-        if score >= target:
-            options.append(f"{target}: {checkout_options[target]}")
-    return options if options else ["No checkout possible"]
 
-# Capture images from all three cameras and run YOLO detection
-def capture_images():
-    frame1 = picam1.capture_array()
-    frame2 = picam2.capture_array()
-    frame3 = picam3.capture_array()
+def update_score(darts, current_player):
+    """ Update the score based on dartboard hit detection """
+    global score1, score2
+    for dart in darts:
+        distance = np.linalg.norm(np.array(dart) - np.array(dartboard_center))
+        if distance <= dartboard_radius:
+            if current_player == 1:
+                score1 -= 10  # Deduct 10 points for each hit (this is just an example)
+            else:
+                score2 -= 10
+    return score1, score2
 
-    # Resize frames for YOLO model input (640x640)
-    resized_frame1 = cv2.resize(frame1, (640, 640))
-    resized_frame2 = cv2.resize(frame2, (640, 640))
-    resized_frame3 = cv2.resize(frame3, (640, 640))
 
-    return resized_frame1, resized_frame2, resized_frame3
+def best_checkout(score):
+    """ Given a score, find the best checkout combination """
+    combinations = []
+    # Add single and double scores
+    for i in range(1, 21):
+        combinations.append(i)  # Single i
+        combinations.append(i * 2)  # Double i
+        combinations.append(i * 3)  # Triple i
+    combinations.append(25)  # Bullseye for 50 points
+    combinations.append(50)  # Bullseye
 
-def detect_dart():
-    """Captures an image from all cameras, resizes to 640x640, and runs dart detection"""
-    frame1, frame2, frame3 = capture_images()
-
-    # Run YOLO detection on each frame
-    results1 = model(frame1)
-    results2 = model(frame2)
-    results3 = model(frame3)
-
-    # Loop through each result and get dart scores
-    for results in [results1, results2, results3]:
-        for r in results:
-            for box in r.boxes:
-                x, y, w, h = map(int, box.xywh[0])
-                return get_score(x, y)
+    # Try to find the best possible checkout combination
+    for i in range(len(combinations)):
+        for j in range(i, len(combinations)):
+            for k in range(j, len(combinations)):
+                total = combinations[i] + combinations[j] + combinations[k]
+                if total == score:
+                    return [combinations[i], combinations[j], combinations[k]]
 
     return None
 
-# Handle dart throw
-def throw_dart():
+
+def video_stream():
+    """ Generate video stream for Flask web interface """
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        # Detect darts
+        darts = detect_darts(frame)
+
+        # Update the score
+        global score1, score2
+        with lock:
+            score1, score2 = update_score(darts, current_player)
+
+        # Get best checkout suggestion for the current score
+        checkout = best_checkout(score1 if current_player == 1 else score2)
+
+        # Show the dartboard, score, and checkout on the frame
+        cv2.putText(frame, f"Player 1: {score1}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+        cv2.putText(frame, f"Player 2: {score2}", (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+        if checkout:
+            cv2.putText(frame, f"Best Checkout: {checkout}", (10, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2,
+                        cv2.LINE_AA)
+
+        # Encode the frame for streaming
+        ret, jpeg = cv2.imencode('.jpg', frame)
+        if not ret:
+            continue
+        frame = jpeg.tobytes()
+
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
+
+
+@app.route('/')
+def index():
+    """ Home route to display the UI """
+    return render_template('index.html')
+
+
+@app.route('/video_feed')
+def video_feed():
+    """ Route for video feed to the web page """
+    return Response(video_stream(),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
+
+
+@app.route('/next_turn')
+def next_turn():
+    """ Switch turns between players """
     global current_player
-    score = detect_dart()
+    with lock:
+        current_player = 2 if current_player == 1 else 1
+    return jsonify({"current_player": current_player})
 
-    if score:
-        players[current_player]["score"] -= score
-        if players[current_player]["score"] <= 0:
-            players[current_player]["score"] = starting_score
-            speak(f"{players[current_player]['name']} Bust! Restarting from {starting_score}")
-        else:
-            speak(f"{players[current_player]['name']} now has {players[current_player]['score']}")
 
-    # Switch to next player
-    current_player = (current_player + 1) % 2
-    return {
-        "players": players,
-        "turn": players[current_player]["name"],
-        "checkout": get_checkout_options(players[current_player]["score"]),
-    }
+@app.route('/get_scores')
+def get_scores():
+    """ Get current scores for both players """
+    return jsonify({"player1_score": score1, "player2_score": score2})
 
-# Set starting score (301, 501, 701)
-@app.route("/set_score", methods=["POST"])
-def set_score():
-    global starting_score, players
-    data = request.get_json()
-    if "score" in data and data["score"] in [301, 501, 701]:
-        starting_score = data["score"]
-        players = [{"name": "Player 1", "score": starting_score}, {"name": "Player 2", "score": starting_score}]
-        speak(f"Game set to {starting_score}")
-        return jsonify({"message": "Game set", "players": players})
-    return jsonify({"error": "Invalid score"}), 400
 
-# Reset game
-@app.route("/reset", methods=["GET"])
-def reset():
-    global players, current_player
-    players = [{"name": "Player 1", "score": starting_score}, {"name": "Player 2", "score": starting_score}]
-    current_player = 0
-    speak("Game reset")
-    return jsonify({"message": "Game reset", "players": players})
+@app.route('/reset_game')
+def reset_game():
+    """ Reset the game to initial state """
+    global score1, score2, current_player
+    with lock:
+        score1 = 501
+        score2 = 501
+        current_player = 1
+    return jsonify({"player1_score": score1, "player2_score": score2})
 
-# Process dart throw
-@app.route("/throw", methods=["GET"])
-def throw():
-    return jsonify(throw_dart())
 
-# Voice output
-def speak(text):
-    os.system(f'espeak "{text}"')
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)

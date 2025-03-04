@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dart Game</title>
+    <style>
+        body {
+            text-align: center;
+            font-family: Arial, sans-serif;
+        }
+        .game-info {
+            margin: 20px;
+        }
+        .score {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .video-container {
+            margin: 20px;
+        }
+        #video_feed {
+            width: 640px;
+            height: 480px;
+        }
+        .buttons {
+            margin: 20px;
+        }
+        button {
+            padding: 10px;
+            font-size: 18px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+<h1>Dart Game</h1>
+
+<div class="game-info">
+    <div class="score" id="score1">Player 1: 501</div>
+    <div class="score" id="score2">Player 2: 501</div>
+    <div class="score" id="current_player">Current Player: 1</div>
+</div>
+
+<div class="video-container">
+    <img id="video_feed" src="{{ url_for('video_feed') }}" />
+</div>
+
+<div class="buttons">
+    <button onclick="nextTurn()">Next Turn</button>
+    <button onclick="resetGame()">Reset Game</button>
+</div>
+
+<script>
+    function nextTurn() {
+        fetch('/next_turn')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('current_player').innerText = "Current Player: " + data.current_player;
+            });
+    }
+
+    function resetGame() {
+        fetch('/reset_game')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('score1').innerText = "Player 1: " + data.player1_score;
+                document.getElementById('score2').innerText = "Player 2: " + data.player2_score;
+            });
+    }
+
+    setInterval(() => {
+        fetch('/get_scores')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('score1').innerText = "Player 1: " + data.player1_score;
+                document.getElementById('score2').innerText = "Player 2: " + data.player2_score;
+            });
+    }, 1000);
+</script>
+
+</body>
+</html>
