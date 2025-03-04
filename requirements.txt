@@ -1,0 +1,7 @@
+ultralytics==8.3.83
+opencv-python==4.11.0.86
+numpy==2.0.2
+torch==2.6.0
+torchvision==0.21.0
+labelImg==1.8.6
+flask==
