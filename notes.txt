@@ -13,7 +13,7 @@ labelImg
 
 yolo train model=yolov8n.pt data=/path/to/dart_dataset/data.yaml epochs=50 imgsz=640
 
-scp runs/detect/train/weights/best.pt pi@your_pi_ip:/home/pi/
+scp -r pi@your_pi_ip:/home/pi/dart_images/ /path/to/your/pc/folder/
 
 📌 Steps to Build the Dart Scoring System (USB Cameras)
 1️⃣ Install dependencies (pip install ...)
