@@ -14,3 +14,12 @@ labelImg
 yolo train model=yolov8n.pt data=/path/to/dart_dataset/data.yaml epochs=50 imgsz=640
 
 scp runs/detect/train/weights/best.pt pi@your_pi_ip:/home/pi/
+
+📌 Steps to Build the Dart Scoring System (USB Cameras)
+1️⃣ Install dependencies (pip install ...)
+2️⃣ Capture images from 3 USB cameras (capture_images.py)
+3️⃣ Label data using LabelImg
+4️⃣ Train YOLO model on PC (yolo train ...)
+5️⃣ Transfer trained model to Pi
+6️⃣ Run multi-camera detection (multi_cam_detect.py)
+7️⃣ Popup UI for real-time scoring (dart_game.py)
