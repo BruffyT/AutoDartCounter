@@ -1,0 +1,16 @@
+sudo apt update && sudo apt upgrade -y
+sudo apt install python3-pip python3-venv libopencv-dev
+
+python3 -m venv dart_venv
+source dart_venv/bin/activate
+pip install --upgrade pip
+
+pip install numpy opencv-python ultralytics pillow tkinter
+
+pip install labelImg
+
+labelImg
+
+yolo train model=yolov8n.pt data=/path/to/dart_dataset/data.yaml epochs=50 imgsz=640
+
+scp runs/detect/train/weights/best.pt pi@your_pi_ip:/home/pi/
