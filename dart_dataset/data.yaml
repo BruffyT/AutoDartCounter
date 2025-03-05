@@ -1,0 +1,5 @@
+train: dart_dataset/images/train
+val: dart_dataset/images/val
+
+nc: 1
+names: ['dart']
